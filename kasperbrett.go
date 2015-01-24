@@ -964,38 +964,41 @@ type UrlScraper struct {
 }
 
 func (this *UrlScraper) Retrieve(sampleChan chan *Sample) {
-	var sample *Sample
 	t := time.Now()
 	doc, err := goquery.NewDocument(this.url)
 	if err != nil {
-		sample = NewSample("", t, this.dataSourceId, err)
+		sampleChan <- NewSample("", t, this.dataSourceId, err)
+		return
 	}
 
 	value := doc.Find(this.cssPath).Text()
 	if len(value) == 0 {
-		sample = NewSample("", t, this.dataSourceId, errors.New("The specified CSS path is invalid or doesn't match any DOM nodes."))
+		sampleChan <- NewSample("", t, this.dataSourceId, errors.New("The specified CSS path is invalid or doesn't match any DOM nodes."))
+		return
 	}
 
 	if len(this.transformationScript) > 0 {
 		// TODO: perform some JS sanitation to prevent injection of harmful JS code
 		_, err = this.jsEngine.Run("var value = '" + value + "';")
 		if err != nil {
-			sample = NewSample("", t, this.dataSourceId, err)
+			sampleChan <- NewSample("", t, this.dataSourceId, err)
+			return
 		}
 
 		jsValue, err := this.jsEngine.Run("value = " + this.transformationScript + ";")
 		if err != nil {
-			sample = NewSample("", t, this.dataSourceId, err)
+			sampleChan <- NewSample("", t, this.dataSourceId, err)
+			return
 		}
 
 		value = jsValue.String()
 		if len(value) == 0 {
-			sample = NewSample("", t, this.dataSourceId, errors.New("Couldn't perform the provided JS transformation."))
+			sampleChan <- NewSample("", t, this.dataSourceId, errors.New("Couldn't perform the provided JS transformation."))
+			return
 		}
 	}
 
-	sample = NewSample(value, t, this.dataSourceId, nil)
-	sampleChan <- sample
+	sampleChan <- NewSample(value, t, this.dataSourceId, nil)
 }
 
 func (this *UrlScraper) Type() string {
