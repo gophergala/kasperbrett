@@ -4,11 +4,31 @@ import (
 	"errors"
 	"fmt"
 	"gopkg.in/tomb.v2"
+	"net/http"
 	"time"
 )
 
 func main() {
 	fmt.Println("Hello Kasperbrett!")
+}
+
+type Sample struct {
+	Value        string
+	Timestamp    time.Time
+	DataSourceId string
+	Err          error
+}
+
+type SocketIOApi interface {
+	Handler() http.Handler
+	Broadcast(*Sample)
+}
+
+type DataStore interface {
+	Prepare() error
+	ShutDown() error
+	PersistSamples(samples []*Sample) error
+	GetSamples(dataSourceId string, from time.Time, to time.Time) ([]*Sample, error)
 }
 
 /* ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** */
@@ -42,16 +62,205 @@ type ReportingEngine interface {
 	ShutDown() error
 }
 
-type Sample struct {
-	Value        string
-	Timestamp    time.Time
-	DataSourceId string
-	Err          error
+/* ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** */
+/* ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** */
+/* ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** */
+
+func NewSocketIOReporter(socketIOApi SocketIOApi) SocketIOReporter {
+	return SocketIOReporter{socketIOApi: socketIOApi}
+}
+
+type SocketIOReporter struct {
+	socketIOApi SocketIOApi
+}
+
+func (r SocketIOReporter) OnSample(sample *Sample) {
+	r.socketIOApi.Broadcast(sample)
+}
+
+func (r SocketIOReporter) Prepare() error {
+	return nil
+}
+
+func (r SocketIOReporter) ShutDown() error {
+	return nil
 }
 
 /* ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** */
 /* ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** */
 /* ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** */
+
+func NewConsoleReporter(prefix string) ConsoleReporter {
+	return ConsoleReporter{prefix: prefix}
+}
+
+type ConsoleReporter struct {
+	prefix string
+}
+
+func (r ConsoleReporter) OnSample(sample *Sample) {
+	fmt.Printf("%s%s\n", r.prefix, sample)
+}
+
+func (r ConsoleReporter) Prepare() error {
+	return nil
+}
+
+func (r ConsoleReporter) ShutDown() error {
+	return nil
+}
+
+/* ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** */
+/* ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** */
+/* ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** */
+
+func NewPersistentDataStoreReporter(dataStore DataStore, flushInterval time.Duration) *PersistentDataStoreReporter {
+	r := &PersistentDataStoreReporter{
+		dataStore:         dataStore,
+		flushTicker:       time.NewTicker(flushInterval),
+		sampleChan:        make(chan *Sample),
+		sampleRequestChan: make(chan SampleRetrievalRequest),
+	}
+
+	go func() {
+		for {
+			select {
+			case <-r.flushTicker.C:
+				samplesToFlush := r.buffer[0:len(r.buffer)]
+				err := r.dataStore.PersistSamples(samplesToFlush)
+				if err != nil {
+					fmt.Println("[PersistentDataStoreReporter] Couldn't persist samples due to:", err)
+				}
+
+				// clear buffer
+				// Attention! This might produce a memory leak...
+				// see: http://stackoverflow.com/questions/16971741/how-do-you-clear-a-slice-in-go
+				r.buffer = r.buffer[:0]
+
+			case sample := <-r.sampleChan:
+				// it might be better to impl. a custom append() function for performance reasons
+				// but in the first version the built-in one is sufficient
+				r.buffer = append(r.buffer, sample)
+
+			case sampleRetrievalRequest := <-r.sampleRequestChan:
+				var eligibleSamples []*Sample
+
+				for _, sample := range r.buffer {
+					doesDataSourceIdMatch := sample.DataSourceId == sampleRetrievalRequest.DataSourceId
+					doesFromTimeMatch := sample.Timestamp.Equal(sampleRetrievalRequest.From) || sample.Timestamp.After(sampleRetrievalRequest.From)
+					doesToTimeMatch := sample.Timestamp.Equal(sampleRetrievalRequest.To) || sample.Timestamp.Before(sampleRetrievalRequest.To)
+
+					if doesDataSourceIdMatch && doesFromTimeMatch && doesToTimeMatch {
+						eligibleSamples = append(eligibleSamples, sample)
+					}
+				}
+
+				sampleRetrievalRequest.ResponseChan <- eligibleSamples
+			}
+		}
+	}()
+
+	return r
+}
+
+type PersistentDataStoreReporter struct {
+	dataStore         DataStore
+	buffer            []*Sample
+	flushTicker       *time.Ticker
+	sampleChan        chan *Sample
+	sampleRequestChan chan SampleRetrievalRequest
+}
+
+func (r *PersistentDataStoreReporter) OnSample(sample *Sample) {
+	r.sampleChan <- sample
+}
+
+func (r *PersistentDataStoreReporter) GetSamples(dataSourceId string, from time.Time, to time.Time) []*Sample {
+	responseChan := make(chan []*Sample)
+	sampleFilterInfo := SampleRetrievalRequest{DataSourceId: dataSourceId, From: from, To: to, ResponseChan: responseChan}
+	r.sampleRequestChan <- sampleFilterInfo
+	return <-responseChan
+}
+
+func (r *PersistentDataStoreReporter) Prepare() error {
+	return r.dataStore.Prepare()
+}
+
+func (r *PersistentDataStoreReporter) ShutDown() error {
+	// TODO: stop ticker, flush remaining samples, and afterwards shutdown the data store
+	return r.dataStore.ShutDown()
+}
+
+/* ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** */
+/* ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** */
+/* ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** */
+
+type SampleRetrievalRequest struct {
+	DataSourceId string
+	From         time.Time
+	To           time.Time
+	ResponseChan chan []*Sample
+}
+
+/* ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** */
+/* ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** */
+/* ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** */
+
+func NewKasperbrettReportingEngine() *KasperbrettReportingEngine {
+	re := &KasperbrettReportingEngine{
+		reporterRegistrationChan: make(chan Reporter),
+		sampleChan:               make(chan *Sample),
+		shutDownChan:             make(chan chan error),
+	}
+
+	go func() {
+		for {
+			select {
+			case reporter := <-re.reporterRegistrationChan:
+				re.reporters = append(re.reporters, reporter) // it is valid to append data to nil slices
+				reporter.Prepare()                            // TODO: handle error that might happen during preparation
+			case sample := <-re.sampleChan:
+				for _, reporter := range re.reporters {
+					go reporter.OnSample(sample)
+				}
+			case responseChan := <-re.shutDownChan:
+				var overallErr error = nil
+				for _, reporter := range re.reporters {
+					err := reporter.ShutDown()
+					if err != nil && overallErr == nil {
+						overallErr = err
+					}
+				}
+				responseChan <- overallErr
+			}
+		}
+	}()
+
+	return re
+}
+
+type KasperbrettReportingEngine struct {
+	reporters                []Reporter
+	reporterRegistrationChan chan Reporter
+	sampleChan               chan *Sample
+	shutDownChan             chan chan error
+}
+
+func (re *KasperbrettReportingEngine) Register(reporters ...Reporter) {
+	for _, reporter := range reporters {
+		re.reporterRegistrationChan <- reporter
+	}
+}
+
+func (re *KasperbrettReportingEngine) Distribute(sample *Sample) {
+	re.sampleChan <- sample
+}
+
+func (re *KasperbrettReportingEngine) ShutDown() error {
+	responseChan := make(chan error)
+	re.shutDownChan <- responseChan
+	return <-responseChan
+}
 
 /* ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** */
 /* ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** */
