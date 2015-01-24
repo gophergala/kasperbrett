@@ -460,8 +460,18 @@ func NewKasperbrettRestApi(bindAddr string, socketIOPath string, socketIOApi Soc
 			}
 		})
 
+		m.Get("/datasources", func(ctx *macaron.Context) {
+			dataSources, err := dataStore.GetDataSources()
+			if err != nil {
+				ctx.JSON(500, &ErrorResponse{Error: err.Error()})
+				return
+			}
+
+			ctx.JSON(200, &dataSources)
+		})
+
 		// just a trigger to test dataStore.GetSamples()
-		m.Get("/datasources", func() string {
+		m.Get("/trigger-get-samples", func() string {
 			// 2015-01-18T14:36:51.915246044Z
 			from, fromErr := time.Parse(time.RFC3339Nano, "2015-01-18T14:36:51Z")
 			if fromErr != nil {
@@ -618,6 +628,7 @@ type DataStore interface {
 	Prepare() error
 	ShutDown() error
 	PersistDataSource(dataSource DataSource) error
+	GetDataSources() ([]DataSource, error)
 	PersistSamples(samples []*Sample) error
 	GetSamples(dataSourceId string, from time.Time, to time.Time) ([]*Sample, error)
 }
@@ -679,6 +690,35 @@ func (ds *BoltDataStore) PersistDataSource(dataSource DataSource) error {
 
 		return b.Put([]byte(dataSource.Id()), dataSourceBytes)
 	})
+}
+
+func (ds *BoltDataStore) GetDataSources() ([]DataSource, error) {
+	dataSources := []DataSource{}
+
+	err := ds.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(BoltDataSourcesBucket))
+
+		var dataSource DataSource
+		var err error
+		return b.ForEach(func(dataSourceId, dataSourceBytes []byte) error {
+			// TODO: we need to differentiate between different data source types here
+			dataSource = new(UrlScraper)
+			err = dataSource.GobDecode(dataSourceBytes)
+			if err != nil {
+				fmt.Printf("[BoltDataStore.GetDataSources()] Couldn't read data source %s due to: %s\n", dataSourceId, err.Error())
+			} else {
+				dataSources = append(dataSources, dataSource)
+			}
+
+			return nil
+		})
+	})
+
+	if err != nil {
+		return nil, err
+	} else {
+		return dataSources, nil
+	}
 }
 
 func (ds *BoltDataStore) PersistSamples(samples []*Sample) error {
