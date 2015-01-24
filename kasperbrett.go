@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/gob"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -159,6 +161,77 @@ func (this *Sample) JSON() string {
 
 func (this *Sample) Key() string {
 	return GenerateKey(this.DataSourceId, BoltSampleKeySeparator, this.Timestamp)
+}
+
+func (this *Sample) GobEncode() ([]byte, error) {
+	// TODO: It might make sense to include a version number in the encoding due to future changes.
+
+	buff := new(bytes.Buffer)
+	encoder := gob.NewEncoder(buff)
+
+	err := encoder.Encode(this.Value)
+	if err != nil {
+		return nil, err
+	}
+
+	err = encoder.Encode(this.Timestamp)
+	if err != nil {
+		return nil, err
+	}
+
+	err = encoder.Encode(this.DataSourceId)
+	if err != nil {
+		return nil, err
+	}
+
+	errStr := ""
+	if this.Err != nil {
+		errStr = this.Err.Error()
+	}
+
+	err = encoder.Encode(errStr)
+	if err != nil {
+		return nil, err
+	}
+
+	return buff.Bytes(), nil
+}
+
+func (this *Sample) GobDecode(sampleBytes []byte) error {
+	// TODO: It might make sense to include a version number in the encoding due to future changes.
+	fmt.Println("   [Sample]   GobDecode()")
+
+	buff := bytes.NewBuffer(sampleBytes)
+	decoder := gob.NewDecoder(buff)
+
+	err := decoder.Decode(&this.Value)
+	if err != nil {
+		return err
+	}
+
+	err = decoder.Decode(&this.Timestamp)
+	if err != nil {
+		return err
+	}
+
+	err = decoder.Decode(&this.DataSourceId)
+	if err != nil {
+		return err
+	}
+
+	var str string
+	err = decoder.Decode(&str)
+	if err != nil {
+		return err
+	}
+
+	if len(str) > 0 {
+		this.Err = errors.New(str)
+	} else {
+		this.Err = nil
+	}
+
+	return nil
 }
 
 func (this *Sample) String() string {
