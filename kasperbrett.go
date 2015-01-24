@@ -346,6 +346,10 @@ type DataSourceResponse struct {
 	DataSourceId string `json:"dataSourceId"`
 }
 
+type ErrorResponse struct {
+	Error string `json:"error"`
+}
+
 /* ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** */
 /* ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** */
 /* ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** */
@@ -359,7 +363,52 @@ func NewKasperbrettRestApi(bindAddr string, socketIOPath string, socketIOApi Soc
 
 	m.Group("/api", func() {
 		m.Post("/datasources", binding.Bind(DataSourceDto{}), func(ds DataSourceDto, ctx *macaron.Context) {
-			ctx.JSON(200, &DataSourceResponse{DataSourceId: "123456"})
+			// basic validation
+			if ds.Type != DsUrlScraper {
+				ctx.JSON(400, &ErrorResponse{Error: "Unsupported data source type: " + ds.Type})
+				return
+			}
+			if len(ds.TypeSettings["url"]) == 0 {
+				ctx.JSON(400, &ErrorResponse{Error: "Please provide a valid URL."})
+				return
+			}
+			if len(ds.TypeSettings["cssPath"]) == 0 {
+				ctx.JSON(400, &ErrorResponse{Error: "Please provide a valid CSS path."})
+				return
+			}
+
+			// default values
+			if ds.Interval == 0 {
+				ds.Interval = 60000
+			}
+			if ds.Timeout == 0 {
+				ds.Timeout = 10000
+			}
+
+			// data source creation
+			urlScraperDs, err := NewUrlScraper(
+				ds.TypeSettings["url"],
+				ds.TypeSettings["cssPath"],
+				ds.TypeSettings["transformationScript"],
+			)
+			if err != nil {
+				ctx.JSON(400, &ErrorResponse{Error: err.Error()})
+				return
+			}
+
+			// retrieval test
+			sample := Retrieve(urlScraperDs, time.Duration(ds.Timeout)*time.Millisecond)
+			if sample.Err != nil {
+				ctx.JSON(400, &ErrorResponse{Error: sample.Err.Error()})
+				return
+			}
+
+			// schedule data source job
+			scheduler.Schedule(urlScraperDs.Id(), time.Millisecond*time.Duration(ds.Interval), func(reportingEngine ReportingEngine) {
+				RetrieveAndDistribute(urlScraperDs, reportingEngine, time.Duration(ds.Timeout)*time.Millisecond)
+			})
+
+			ctx.JSON(200, &DataSourceResponse{DataSourceId: urlScraperDs.Id()})
 		})
 
 		m.Get("/datasources/:dataSourceId/samples/:timeframe", func(ctx *macaron.Context) string {
@@ -705,7 +754,7 @@ const (
 /* ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** */
 /* ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** */
 
-func RetrieveAndDistribute(ds DataSource, re ReportingEngine, timeout time.Duration) {
+func Retrieve(ds DataSource, timeout time.Duration) *Sample {
 	sampleChan := make(chan *Sample)
 	go ds.Retrieve(sampleChan)
 
@@ -717,6 +766,11 @@ func RetrieveAndDistribute(ds DataSource, re ReportingEngine, timeout time.Durat
 		sample = NewSample("", now, ds.Id(), errors.New("Sample retrieval timed out."))
 	}
 
+	return sample
+}
+
+func RetrieveAndDistribute(ds DataSource, re ReportingEngine, timeout time.Duration) {
+	sample := Retrieve(ds, timeout)
 	re.Distribute(sample)
 }
 
