@@ -170,6 +170,74 @@ func (this *Sample) String() string {
 /* ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** */
 /* ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** */
 
+func NewUrlScraper(url string, cssPath string, transformationScript string) (*UrlScraper, error) {
+	uuid, err := uuid.NewV4()
+	if err != nil {
+		return nil, err
+	}
+
+	dataSourceId := "ds-" + uuid.String()
+
+	return &UrlScraper{
+		AbstractDataSource:   NewAbstractDataSource(dataSourceId),
+		url:                  url,
+		cssPath:              cssPath,
+		jsEngine:             otto.New(),
+		transformationScript: transformationScript,
+	}, nil
+}
+
+type UrlScraper struct {
+	AbstractDataSource
+	url                  string
+	cssPath              string
+	jsEngine             *otto.Otto
+	transformationScript string
+}
+
+func (this *UrlScraper) Retrieve(sampleChan chan *Sample) {
+	var sample *Sample
+	t := time.Now()
+	doc, err := goquery.NewDocument(this.url)
+	if err != nil {
+		sample = NewSample("", t, this.dataSourceId, err)
+	}
+
+	value := doc.Find(this.cssPath).Text()
+	if len(value) == 0 {
+		sample = NewSample("", t, this.dataSourceId, errors.New("The specified CSS path is invalid or doesn't match any DOM nodes."))
+	}
+
+	if len(this.transformationScript) > 0 {
+		// TODO: perform some JS sanitation to prevent injection of harmful JS code
+		_, err = this.jsEngine.Run("var value = '" + value + "';")
+		if err != nil {
+			sample = NewSample("", t, this.dataSourceId, err)
+		}
+
+		jsValue, err := this.jsEngine.Run("value = " + this.transformationScript + ";")
+		if err != nil {
+			sample = NewSample("", t, this.dataSourceId, err)
+		}
+
+		value = jsValue.String()
+		if len(value) == 0 {
+			sample = NewSample("", t, this.dataSourceId, errors.New("Couldn't perform the provided JS transformation."))
+		}
+	}
+
+	sample = NewSample(value, t, this.dataSourceId, nil)
+	sampleChan <- sample
+}
+
+func (this *UrlScraper) Type() string {
+	return DsUrlScraper
+}
+
+/* ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** */
+/* ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** */
+/* ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** */
+
 /* ***** ██████╗ ███████╗██████╗  ██████╗ ██████╗ ████████╗██╗███╗   ██╗ ██████╗  ***** */
 /* ***** ██╔══██╗██╔════╝██╔══██╗██╔═══██╗██╔══██╗╚══██╔══╝██║████╗  ██║██╔════╝  ***** */
 /* ***** ██████╔╝█████╗  ██████╔╝██║   ██║██████╔╝   ██║   ██║██╔██╗ ██║██║  ███╗ ***** */
