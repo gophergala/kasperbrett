@@ -6,6 +6,8 @@ A dead simple dashboard app created in the course of the [Gopher Gala](http://go
 * Persistent storage of all time series data
 * Pluggable data source architecture
 * Web-based UI with realtime updates
+* Data is accessible via REST API
+* Minimally scriptable
 
 ## Limitations
 
@@ -15,6 +17,11 @@ A dead simple dashboard app created in the course of the [Gopher Gala](http://go
 ## Use Cases
 
 * Metrics and analytics for all kind of data accessible on the Web
+
+
+## Data Sources
+
+* URL Scraper
 
 
 
