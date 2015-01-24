@@ -26,7 +26,30 @@ import (
 )
 
 func main() {
-	fmt.Println("Hello Kasperbrett!")
+	// config file discovery
+	configFilePath, err := getConfigFilePath()
+	if err != nil {
+		fmt.Println("Error while discovering config file:", err)
+		os.Exit(1)
+	}
+
+	// config processing
+	config, err := processConfig(configFilePath)
+	if err != nil {
+		fmt.Println("Error while processing config file:", err)
+		os.Exit(2)
+	}
+	fmt.Println("config ->", config.GetDataFilePath(), config.GetDataFlushInterval())
+
+	// orchestration
+	kasperbrett, err := NewKasperbrett(config).Prepare()
+	if err != nil {
+		fmt.Println("Couldn't start Kasperbrett server. Reason:", err)
+		os.Exit(3)
+	}
+
+	// prevent main() from terminating
+	kasperbrett.BlockUntilShutdown()
 }
 
 /* ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** */
