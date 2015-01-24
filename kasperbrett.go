@@ -261,7 +261,7 @@ func (kb *Kasperbrett) Prepare() (*Kasperbrett, error) {
 
 	kb.scheduler = NewKasperbrettScheduler(kb.reportingEngine)
 
-	urlScraperDs, err := NewUrlScraper(
+	/*urlScraperDs, err := NewUrlScraper(
 		"http://angularjs.de",
 		"body > div > div:nth-child(4) > div.col-sm-6.col-md-5 > ul:nth-child(6) > li:nth-child(5) > span",
 		"value.substr(0, value.length - 1)",
@@ -273,6 +273,7 @@ func (kb *Kasperbrett) Prepare() (*Kasperbrett, error) {
 	kb.scheduler.Schedule(urlScraperDs.Id(), time.Millisecond*10000, func(reportingEngine ReportingEngine) {
 		RetrieveAndDistribute(urlScraperDs, reportingEngine, 3000*time.Millisecond)
 	})
+	*/
 
 	kb.restApi = NewKasperbrettRestApi(":8080", "/realtime/", kb.socketIOApi, boltDataStore, persistentDataStoreReporter, kb.scheduler)
 	bindErrChan := kb.restApi.ListenAndServe()
@@ -379,27 +380,36 @@ func NewKasperbrettRestApi(bindAddr string, socketIOPath string, socketIOApi Soc
 
 			// default values
 			if ds.Interval == 0 {
-				ds.Interval = 60000
+				ds.Interval = 60000 // 1 min
 			}
 			if ds.Timeout == 0 {
-				ds.Timeout = 10000
+				ds.Timeout = 10000 // 10 sec
 			}
 
 			// data source creation
-			urlScraperDs, err := NewUrlScraper(
-				ds.TypeSettings["url"],
-				ds.TypeSettings["cssPath"],
-				ds.TypeSettings["transformationScript"],
+			abstractDataSource, err := NewAbstractDataSource(
+				ds.Name, time.Millisecond*time.Duration(ds.Interval), time.Duration(ds.Timeout)*time.Millisecond,
 			)
 			if err != nil {
 				ctx.JSON(400, &ErrorResponse{Error: err.Error()})
 				return
 			}
 
+			urlScraperDs := NewUrlScraper(
+				abstractDataSource, ds.TypeSettings["url"], ds.TypeSettings["cssPath"], ds.TypeSettings["transformationScript"],
+			)
+
 			// retrieval test
 			sample := Retrieve(urlScraperDs, time.Duration(ds.Timeout)*time.Millisecond)
 			if sample.Err != nil {
 				ctx.JSON(400, &ErrorResponse{Error: sample.Err.Error()})
+				return
+			}
+
+			// persist data source
+			err = dataStore.PersistDataSource(urlScraperDs)
+			if err != nil {
+				ctx.JSON(400, &ErrorResponse{Error: err.Error()})
 				return
 			}
 
@@ -607,6 +617,7 @@ func (io *KasperbrettSocketIOApi) Broadcast(sample *Sample) {
 type DataStore interface {
 	Prepare() error
 	ShutDown() error
+	PersistDataSource(dataSource DataSource) error
 	PersistSamples(samples []*Sample) error
 	GetSamples(dataSourceId string, from time.Time, to time.Time) ([]*Sample, error)
 }
@@ -622,6 +633,7 @@ type DataStore interface {
 const (
 	BoltDataFileName       = "kasperbrett.db"
 	BoltSamplesBucket      = "KasperbrettSamples"
+	BoltDataSourcesBucket  = "KasperbrettDataSources"
 	BoltSampleKeySeparator = "#"
 )
 
@@ -643,12 +655,30 @@ func (ds *BoltDataStore) Prepare() error {
 
 	ds.db = db
 
-	return ds.createBucketIfNotExists(BoltSamplesBucket)
+	err = ds.createBucketIfNotExists(BoltSamplesBucket)
+	if err != nil {
+		return err
+	}
+
+	return ds.createBucketIfNotExists(BoltDataSourcesBucket)
 }
 
 func (ds *BoltDataStore) ShutDown() error {
 	fmt.Println("[BoltDataStore] ShutDown()")
 	return ds.db.Close()
+}
+
+func (ds *BoltDataStore) PersistDataSource(dataSource DataSource) error {
+	return ds.db.Update(func(tx *bolt.Tx) error {
+		fmt.Printf("[BoltDataStore] Persisting data source %s\n", dataSource.Id())
+		b := tx.Bucket([]byte(BoltDataSourcesBucket))
+		dataSourceBytes, err := dataSource.GobEncode()
+		if err != nil {
+			return err
+		}
+
+		return b.Put([]byte(dataSource.Id()), dataSourceBytes)
+	})
 }
 
 func (ds *BoltDataStore) PersistSamples(samples []*Sample) error {
@@ -739,6 +769,8 @@ func (ds *BoltDataStore) createBucketIfNotExists(bucketName string) error {
 /* ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** */
 
 type DataSource interface {
+	gob.GobEncoder
+	gob.GobDecoder
 	Retrieve(sampleChan chan *Sample)
 	Id() string
 	Type() string
@@ -778,14 +810,27 @@ func RetrieveAndDistribute(ds DataSource, re ReportingEngine, timeout time.Durat
 /* ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** */
 /* ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** */
 
-func NewAbstractDataSource(dataSourceId string) AbstractDataSource {
-	return AbstractDataSource{dataSourceId: dataSourceId}
+func NewAbstractDataSource(name string, interval time.Duration, timeout time.Duration) (AbstractDataSource, error) {
+	uuid, err := uuid.NewV4()
+	if err != nil {
+		return AbstractDataSource{}, err
+	}
+
+	dataSourceId := "ds-" + uuid.String()
+
+	return AbstractDataSource{
+		dataSourceId: dataSourceId,
+		name:         name,
+		interval:     interval,
+		timeout:      timeout,
+	}, nil
 }
 
 type AbstractDataSource struct {
 	dataSourceId string
 	name         string
 	interval     time.Duration
+	timeout      time.Duration
 }
 
 func (this AbstractDataSource) Id() string {
@@ -798,6 +843,71 @@ func (this AbstractDataSource) Name() string {
 
 func (this AbstractDataSource) Interval() time.Duration {
 	return this.interval
+}
+
+func (this AbstractDataSource) Timeout() time.Duration {
+	return this.timeout
+}
+
+func (this AbstractDataSource) GobEncode() ([]byte, error) {
+	// TODO: It might make sense to include a version number in the encoding due to future changes.
+
+	fmt.Println("   [AbstractDataSource]   GobEncode()")
+
+	buff := new(bytes.Buffer)
+	encoder := gob.NewEncoder(buff)
+
+	err := encoder.Encode(this.dataSourceId)
+	if err != nil {
+		return nil, err
+	}
+
+	err = encoder.Encode(this.name)
+	if err != nil {
+		return nil, err
+	}
+
+	err = encoder.Encode(this.interval)
+	if err != nil {
+		return nil, err
+	}
+
+	err = encoder.Encode(this.timeout)
+	if err != nil {
+		return nil, err
+	}
+
+	return buff.Bytes(), nil
+}
+
+func (this AbstractDataSource) GobDecode(abstractDataSourceBytes []byte) error {
+	// TODO: It might make sense to include a version number in the encoding due to future changes.
+	fmt.Println("   [AbstractDataSource]   GobDecode()")
+
+	buff := bytes.NewBuffer(abstractDataSourceBytes)
+	decoder := gob.NewDecoder(buff)
+
+	err := decoder.Decode(&this.dataSourceId)
+	if err != nil {
+		return err
+	}
+
+	err = decoder.Decode(&this.name)
+	if err != nil {
+		return err
+	}
+
+	err = decoder.Decode(&this.interval)
+	if err != nil {
+		return err
+	}
+
+	err = decoder.Decode(&this.timeout)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 /* ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** */
@@ -938,21 +1048,14 @@ func (this *Sample) String() string {
 /* ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** */
 /* ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** */
 
-func NewUrlScraper(url string, cssPath string, transformationScript string) (*UrlScraper, error) {
-	uuid, err := uuid.NewV4()
-	if err != nil {
-		return nil, err
-	}
-
-	dataSourceId := "ds-" + uuid.String()
-
+func NewUrlScraper(abstractDataSource AbstractDataSource, url string, cssPath string, transformationScript string) *UrlScraper {
 	return &UrlScraper{
-		AbstractDataSource:   NewAbstractDataSource(dataSourceId),
+		AbstractDataSource:   abstractDataSource,
 		url:                  url,
 		cssPath:              cssPath,
 		jsEngine:             otto.New(),
 		transformationScript: transformationScript,
-	}, nil
+	}
 }
 
 type UrlScraper struct {
@@ -1003,6 +1106,67 @@ func (this *UrlScraper) Retrieve(sampleChan chan *Sample) {
 
 func (this *UrlScraper) Type() string {
 	return DsUrlScraper
+}
+
+func (this *UrlScraper) GobEncode() ([]byte, error) {
+	// TODO: It might make sense to include a version number in the encoding due to future changes.
+
+	fmt.Println("   [UrlScraper]   GobEncode()")
+
+	buff := new(bytes.Buffer)
+	encoder := gob.NewEncoder(buff)
+
+	err := encoder.Encode(this.AbstractDataSource)
+	if err != nil {
+		return nil, err
+	}
+
+	err = encoder.Encode(this.url)
+	if err != nil {
+		return nil, err
+	}
+
+	err = encoder.Encode(this.cssPath)
+	if err != nil {
+		return nil, err
+	}
+
+	err = encoder.Encode(this.transformationScript)
+	if err != nil {
+		return nil, err
+	}
+
+	return buff.Bytes(), nil
+}
+
+func (this *UrlScraper) GobDecode(urlScraperBytes []byte) error {
+	// TODO: It might make sense to include a version number in the encoding due to future changes.
+	fmt.Println("   [UrlScraper]   GobDecode()")
+
+	buff := bytes.NewBuffer(urlScraperBytes)
+	decoder := gob.NewDecoder(buff)
+
+	err := decoder.Decode(&this.AbstractDataSource)
+	if err != nil {
+		return err
+	}
+
+	err = decoder.Decode(&this.url)
+	if err != nil {
+		return err
+	}
+
+	err = decoder.Decode(&this.cssPath)
+	if err != nil {
+		return err
+	}
+
+	err = decoder.Decode(&this.transformationScript)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 /* ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** */
