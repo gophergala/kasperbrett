@@ -16,6 +16,7 @@ import (
 	"github.com/robertkrimen/otto"
 	"github.com/stretchr/graceful"
 	"github.com/stretchr/pat/stop"
+	"github.com/ttacon/chalk"
 	"gopkg.in/tomb.v2"
 	"net/http"
 	"os"
@@ -26,6 +27,21 @@ import (
 )
 
 func main() {
+	// print some eye candy to standard out...
+	fmt.Print(chalk.Yellow, "██╗  ██╗ █████╗ ███████╗██████╗ ███████╗██████╗ ", chalk.ResetColor)
+	fmt.Println(chalk.Red, "██████╗ ██████╗ ███████╗████████╗████████╗", chalk.ResetColor)
+	fmt.Print(chalk.Yellow, "██║ ██╔╝██╔══██╗██╔════╝██╔══██╗██╔════╝██╔══██╗", chalk.ResetColor)
+	fmt.Println(chalk.Red, "██╔══██╗██╔══██╗██╔════╝╚══██╔══╝╚══██╔══╝", chalk.ResetColor)
+	fmt.Print(chalk.Yellow, "█████╔╝ ███████║███████╗██████╔╝█████╗  ██████╔╝", chalk.ResetColor)
+	fmt.Println(chalk.Red, "██████╔╝██████╔╝█████╗     ██║      ██║   ", chalk.ResetColor)
+	fmt.Print(chalk.Yellow, "██╔═██╗ ██╔══██║╚════██║██╔═══╝ ██╔══╝  ██╔══██╗", chalk.ResetColor)
+	fmt.Println(chalk.Red, "██╔══██╗██╔══██╗██╔══╝     ██║      ██║   ", chalk.ResetColor)
+	fmt.Print(chalk.Yellow, "██║  ██╗██║  ██║███████║██║     ███████╗██║  ██║", chalk.ResetColor)
+	fmt.Println(chalk.Red, "██████╔╝██║  ██║███████╗   ██║      ██║   ", chalk.ResetColor)
+	fmt.Print(chalk.Yellow, "╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝╚═╝     ╚══════╝╚═╝  ╚═╝", chalk.ResetColor)
+	fmt.Print(chalk.Red, " ╚═════╝ ╚═╝  ╚═╝╚══════╝   ╚═╝      ╚═╝   ", chalk.ResetColor)
+	fmt.Println(chalk.Yellow, "v0.0.1", chalk.ResetColor)
+
 	// config file discovery
 	configFilePath, err := getConfigFilePath()
 	if err != nil {
