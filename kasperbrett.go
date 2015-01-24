@@ -274,7 +274,7 @@ func (kb *Kasperbrett) Prepare() (*Kasperbrett, error) {
 		RetrieveAndDistribute(urlScraperDs, reportingEngine, 3000*time.Millisecond)
 	})
 
-	kb.restApi = NewKasperbrettRestApi(":8080", "/realtime/", kb.socketIOApi, boltDataStore, persistentDataStoreReporter)
+	kb.restApi = NewKasperbrettRestApi(":8080", "/realtime/", kb.socketIOApi, boltDataStore, persistentDataStoreReporter, kb.scheduler)
 	bindErrChan := kb.restApi.ListenAndServe()
 	bindErr := <-bindErrChan
 	if bindErr != nil {
@@ -334,8 +334,16 @@ type RestApi interface {
 /* ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** */
 
 type DataSourceDto struct {
+	Type     string `json:"type" binding:"Required"`
 	Name     string `json:"name" binding:"Required"`
 	Interval int    `json:"interval"`
+	Timeout  int    `json:"timeout"`
+	// TypeSettings are variable depending on the data source
+	TypeSettings map[string]string `json:"typeSettings"`
+}
+
+type DataSourceResponse struct {
+	DataSourceId string `json:"dataSourceId"`
 }
 
 /* ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** */
@@ -343,13 +351,15 @@ type DataSourceDto struct {
 /* ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** */
 
 // TODO: PersistentDataStoreReporter might become an interface.
-func NewKasperbrettRestApi(bindAddr string, socketIOPath string, socketIOApi SocketIOApi, dataStore DataStore, persistentDataStoreReporter *PersistentDataStoreReporter) *KasperbrettRestApi {
+func NewKasperbrettRestApi(bindAddr string, socketIOPath string, socketIOApi SocketIOApi, dataStore DataStore, persistentDataStoreReporter *PersistentDataStoreReporter, scheduler Scheduler) *KasperbrettRestApi {
 	mux := http.NewServeMux()
 
 	m := macaron.Classic()
+	m.Use(macaron.Renderer()) // add JSON rendering ability
+
 	m.Group("/api", func() {
-		m.Post("/datasources", binding.Bind(DataSourceDto{}), func(ds DataSourceDto) string {
-			return fmt.Sprintf("name -> %s, interval -> %d", ds.Name, ds.Interval)
+		m.Post("/datasources", binding.Bind(DataSourceDto{}), func(ds DataSourceDto, ctx *macaron.Context) {
+			ctx.JSON(200, &DataSourceResponse{DataSourceId: "123456"})
 		})
 
 		m.Get("/datasources/:dataSourceId/samples/:timeframe", func(ctx *macaron.Context) string {
