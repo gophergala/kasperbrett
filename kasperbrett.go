@@ -337,8 +337,8 @@ type RestApi interface {
 type DataSourceDto struct {
 	Type     string `json:"type" binding:"Required"`
 	Name     string `json:"name" binding:"Required"`
-	Interval int    `json:"interval"`
-	Timeout  int    `json:"timeout"`
+	Interval int64  `json:"interval"`
+	Timeout  int64  `json:"timeout"`
 	// TypeSettings are variable depending on the data source
 	TypeSettings map[string]string `json:"typeSettings"`
 }
@@ -467,7 +467,28 @@ func NewKasperbrettRestApi(bindAddr string, socketIOPath string, socketIOApi Soc
 				return
 			}
 
-			ctx.JSON(200, &dataSources)
+			var dataSourceDto DataSourceDto
+			var urlScraperDs *UrlScraper
+			dataSourceList := []DataSourceDto{}
+			for _, dataSource := range dataSources {
+				// TODO: differentiate between multiple data sources in the future
+				urlScraperDs = dataSource.(*UrlScraper)
+
+				dataSourceDto = DataSourceDto{
+					Type:     DsUrlScraper,
+					Name:     dataSource.Name(),
+					Interval: dataSource.Interval().Nanoseconds() / 1000000,
+					Timeout:  dataSource.Timeout().Nanoseconds() / 1000000,
+					TypeSettings: map[string]string{
+						"url":                  urlScraperDs.url,
+						"cssPath":              urlScraperDs.cssPath,
+						"transformationScript": urlScraperDs.transformationScript,
+					},
+				}
+				dataSourceList = append(dataSourceList, dataSourceDto)
+			}
+
+			ctx.JSON(200, &dataSourceList)
 		})
 
 		// just a trigger to test dataStore.GetSamples()
@@ -707,6 +728,7 @@ func (ds *BoltDataStore) GetDataSources() ([]DataSource, error) {
 			if err != nil {
 				fmt.Printf("[BoltDataStore.GetDataSources()] Couldn't read data source %s due to: %s\n", dataSourceId, err.Error())
 			} else {
+				fmt.Printf(" [BoltDataStore.GetDataSources()] dataSourceId -> %s, name ->%s\n", dataSourceId, dataSource.Name())
 				dataSources = append(dataSources, dataSource)
 			}
 
@@ -816,6 +838,7 @@ type DataSource interface {
 	Type() string
 	Name() string
 	Interval() time.Duration
+	Timeout() time.Duration
 }
 
 const (
@@ -889,7 +912,7 @@ func (this AbstractDataSource) Timeout() time.Duration {
 	return this.timeout
 }
 
-func (this AbstractDataSource) GobEncode() ([]byte, error) {
+func (this *AbstractDataSource) GobEncode() ([]byte, error) {
 	// TODO: It might make sense to include a version number in the encoding due to future changes.
 
 	fmt.Println("   [AbstractDataSource]   GobEncode()")
@@ -920,7 +943,7 @@ func (this AbstractDataSource) GobEncode() ([]byte, error) {
 	return buff.Bytes(), nil
 }
 
-func (this AbstractDataSource) GobDecode(abstractDataSourceBytes []byte) error {
+func (this *AbstractDataSource) GobDecode(abstractDataSourceBytes []byte) error {
 	// TODO: It might make sense to include a version number in the encoding due to future changes.
 	fmt.Println("   [AbstractDataSource]   GobDecode()")
 
@@ -1122,6 +1145,10 @@ func (this *UrlScraper) Retrieve(sampleChan chan *Sample) {
 
 	if len(this.transformationScript) > 0 {
 		// TODO: perform some JS sanitation to prevent injection of harmful JS code
+		value = strings.Replace(value, "'", "\\'", -1)
+		value = strings.Replace(value, "\n", "", -1)
+		value = strings.Replace(value, "\r", "", -1)
+
 		_, err = this.jsEngine.Run("var value = '" + value + "';")
 		if err != nil {
 			sampleChan <- NewSample("", t, this.dataSourceId, err)
