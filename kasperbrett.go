@@ -388,7 +388,7 @@ func NewKasperbrettRestApi(bindAddr string, socketIOPath string, socketIOApi Soc
 
 			// data source creation
 			abstractDataSource, err := NewAbstractDataSource(
-				ds.Name, time.Millisecond*time.Duration(ds.Interval), time.Duration(ds.Timeout)*time.Millisecond,
+				ds.Name, time.Duration(ds.Interval)*time.Millisecond, time.Duration(ds.Timeout)*time.Millisecond,
 			)
 			if err != nil {
 				ctx.JSON(400, &ErrorResponse{Error: err.Error()})
