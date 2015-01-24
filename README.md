@@ -1,5 +1,21 @@
 # Kasperbrett
-A dead simple dashboard creation software created in the course of the [Gopher Gala](http://gophergala.com/).
+A dead simple dashboard app created in the course of the [Gopher Gala](http://gophergala.com/).
+
+## Features
+
+* Persistent storage of all time series data
+* Pluggable data source architecture
+* Web-based UI with realtime updates
+
+## Limitations
+
+* Due to Gopher Gala's time limit there is currently only one data source implemented (URL Scraper).
+
+
+## Use Cases
+
+* Metrics and analytics for all kind of data accessible on the Web
+
 
 
 
