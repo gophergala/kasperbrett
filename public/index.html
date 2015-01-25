@@ -5,7 +5,7 @@
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
     <title>Kasperbrett</title>
-    <meta name="description" content="Kasperbrett is a dashboard creation app.">
+    <meta name="description" content="A dead simple dashboard app created in the course of the Gopher Gala.">
     <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
 
 
@@ -15,12 +15,12 @@
     <link rel="stylesheet" href="styles/app.css">
 </head>
 
-<body ng-app="app">
+<body ng-app="kasperbrettApp">
   <!-- Pushy Menu -->
   <nav class="pushy pushy-left">
     <ul>
-      <li><a href="#">Item 1</a></li>
-      <li><a href="#">Item 2</a></li>
+      <li><a href="#">Add Data Source</a></li>
+      <li><a href="#">Do Whatever</a></li>
     </ul>
   </nav>
 
@@ -28,9 +28,22 @@
   <div class="site-overlay"></div>
 
 
-    <section id="container" class="container-fluid" ng-controller="ChartistExampleCtrl as chartist">
+    <section id="container" class="container-fluid" ng-controller="MainCtrl as chartist">
         <div class="menu-btn">&#9776; Menu</div>
         <div class="row">
+
+            <div ng-repeat="dataSource in chartist.dataSources" class="col-md-6">
+                <div class="panel panel-default">
+                    <div class="panel-heading">
+                        <h3 class="panel-title" ng-bind="dataSource.name"></h3>
+                    </div>
+                    <div class="panel-body">
+                        <chartist class="ct-chart ct-golden-section" chartist-data="dataSource.chartData" chartist-chart-type="Line"></chartist>
+                    </div>
+                </div>
+            </div>
+
+            <!--
             <div class="col-md-6">
                 <div class="panel panel-default">
                     <div class="panel-heading">
@@ -48,7 +61,7 @@
                         <h3 class="panel-title">Line Chart</h3>
                     </div>
                     <div class="panel-body">
-                        <chartist class="ct-chart ct-golden-section" chartist-data="chartist.lineData" chartist-chart-type="Line" chartist-chart-options="chartist.lineOptions"></chartist>
+                        <chartist class="ct-chart ct-golden-section" chartist-data="chartist.lineData" chartist-chart-type="Line"></chartist>
                     </div>
                 </div>
             </div>
@@ -74,6 +87,8 @@
                     </div>
                 </div>
             </div>
+            -->
+
         </div>
     </section>
 
