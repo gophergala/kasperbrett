@@ -388,6 +388,10 @@ func NewKasperbrettRestApi(bindAddr string, socketIOPath string, socketIOApi Soc
 				ctx.JSON(400, &ErrorResponse{Error: "Please provide a valid CSS path."})
 				return
 			}
+			if ds.Interval < 10000 {
+				ctx.JSON(400, &ErrorResponse{Error: "Please provide a bigger interval (>= 10000) to prevent abuse."})
+				return
+			}
 
 			// default values
 			if ds.Interval == 0 {
@@ -1101,13 +1105,15 @@ type Sample struct {
 }
 
 func (this *Sample) JSON() string {
-	b, err := json.Marshal(this)
+	/*b, err := json.Marshal(this)
 	if err != nil {
 		// TODO: log this misbehaviour
 		return "{}"
-	}
+	}*/
 
-	return string(b)
+	json := fmt.Sprintf("{\"dataSourceId\":\"%s\", \"timestamp\":%d, \"value\":\"%s\"}", this.DataSourceId, this.Timestamp.UnixNano()/1000000, this.Value)
+
+	return json
 }
 
 func (this *Sample) Key() string {
