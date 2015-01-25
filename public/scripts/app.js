@@ -3,7 +3,7 @@
 
     var module = angular.module('kasperbrettApp', ['angular-chartist', 'ui.bootstrap']);
 
-    module.controller('MainCtrl', function($scope, $interval, $http, $modal) {
+    module.controller('MainCtrl', function($scope, $interval, $window, $http, $modal) {
 
         this.dataSources = [];
 
@@ -29,9 +29,7 @@
             }.bind(this))
 
             console.log('res.data', this.dataSources);
-
-
-
+            initSocketIO();
         }.bind(this));
 
 
@@ -45,6 +43,30 @@
             return returnVal;
         }
 
+        var initSocketIO = function() {
+            var socket = io($window.location.hostname + ':' + $window.location.port, {'path': '/realtime'});
+            socket.on('new_sample', function(msg) {
+                var sample = JSON.parse(msg);
+                console.log('got new sample', sample);
+
+                this.dataSources.forEach(function(dataSource) {
+                    if (dataSource.id == sample.dataSourceId) {
+                        var date = new Date(sample.timestamp);
+                        pushLimit(
+                            dataSource.chartData.labels,
+                            formatDateComponent(date.getHours()) + ':' + formatDateComponent(date.getMinutes()) + ':' + formatDateComponent(date.getSeconds()),
+                            10
+                        );
+
+                        pushLimit(dataSource.chartData.series[0], sample.value, 10);
+                    }
+                });
+
+                $scope.$apply();
+
+            }.bind(this));
+        }.bind(this);
+
         this.openAddDataSourceModal = function() {
             var modalInstance = $modal.open({
               templateUrl: 'templates/modals/addDataSourceModal.html',
@@ -55,6 +77,14 @@
                 this.dataSources.push(dataSource);
             }.bind(this));
         }.bind(this);
+
+
+        function pushLimit(arr, elem, limit) {
+            arr.push(elem);
+            if (arr.length > limit) {
+                arr.splice(0, 1);
+            }
+        }
 
 
             this.events = {
