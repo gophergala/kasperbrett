@@ -472,7 +472,7 @@ func NewKasperbrettRestApi(bindAddr string, socketIOPath string, socketIOApi Soc
 				return
 			}
 
-			includeData := ctx.Query("include-data")
+			includeLatestSamples := ctx.Query("include-latest-samples")
 
 			var dataSourceDto DataSourceDto
 			var urlScraperDs *UrlScraper
@@ -494,11 +494,17 @@ func NewKasperbrettRestApi(bindAddr string, socketIOPath string, socketIOApi Soc
 					},
 				}
 
-				if includeData == "1" {
-					samples, err := dataStore.GetLatestSamples(dataSource.Id(), 10)
-					if err != nil {
-						ctx.JSON(500, &ErrorResponse{Error: err.Error()})
-						return
+				if includeLatestSamples == "1" {
+					desiredNumOfSamples := 10
+					samples := persistentDataStoreReporter.GetLatestSamples(dataSource.Id(), desiredNumOfSamples)
+					if len(samples) < desiredNumOfSamples {
+						storedSamples, err := dataStore.GetLatestSamples(dataSource.Id(), desiredNumOfSamples-len(samples))
+						if err != nil {
+							ctx.JSON(500, &ErrorResponse{Error: err.Error()})
+							return
+						}
+
+						samples = append(storedSamples, samples...)
 					}
 
 					labels := []int64{}
@@ -1389,10 +1395,11 @@ func (r ConsoleReporter) ShutDown() error {
 
 func NewPersistentDataStoreReporter(dataStore DataStore, flushInterval time.Duration) *PersistentDataStoreReporter {
 	r := &PersistentDataStoreReporter{
-		dataStore:         dataStore,
-		flushTicker:       time.NewTicker(flushInterval),
-		sampleChan:        make(chan *Sample),
-		sampleRequestChan: make(chan SampleRetrievalRequest),
+		dataStore:                     dataStore,
+		flushTicker:                   time.NewTicker(flushInterval),
+		sampleChan:                    make(chan *Sample),
+		sampleRequestChan:             make(chan SampleRetrievalRequest),
+		quantitativeSampleRequestChan: make(chan QuantitativeSampleRetrievalRequest),
 	}
 
 	go func() {
@@ -1429,6 +1436,17 @@ func NewPersistentDataStoreReporter(dataStore DataStore, flushInterval time.Dura
 				}
 
 				sampleRetrievalRequest.ResponseChan <- eligibleSamples
+
+			case quantitativeSampleRetrievalRequest := <-r.quantitativeSampleRequestChan:
+				var eligibleSamples []*Sample
+
+				for _, sample := range r.buffer {
+					if len(eligibleSamples) < quantitativeSampleRetrievalRequest.Quantity && sample.DataSourceId == quantitativeSampleRetrievalRequest.DataSourceId {
+						eligibleSamples = append(eligibleSamples, sample)
+					}
+				}
+
+				quantitativeSampleRetrievalRequest.ResponseChan <- eligibleSamples
 			}
 		}
 	}()
@@ -1437,11 +1455,12 @@ func NewPersistentDataStoreReporter(dataStore DataStore, flushInterval time.Dura
 }
 
 type PersistentDataStoreReporter struct {
-	dataStore         DataStore
-	buffer            []*Sample
-	flushTicker       *time.Ticker
-	sampleChan        chan *Sample
-	sampleRequestChan chan SampleRetrievalRequest
+	dataStore                     DataStore
+	buffer                        []*Sample
+	flushTicker                   *time.Ticker
+	sampleChan                    chan *Sample
+	sampleRequestChan             chan SampleRetrievalRequest
+	quantitativeSampleRequestChan chan QuantitativeSampleRetrievalRequest
 }
 
 func (r *PersistentDataStoreReporter) OnSample(sample *Sample) {
@@ -1450,8 +1469,15 @@ func (r *PersistentDataStoreReporter) OnSample(sample *Sample) {
 
 func (r *PersistentDataStoreReporter) GetSamples(dataSourceId string, from time.Time, to time.Time) []*Sample {
 	responseChan := make(chan []*Sample)
-	sampleFilterInfo := SampleRetrievalRequest{DataSourceId: dataSourceId, From: from, To: to, ResponseChan: responseChan}
-	r.sampleRequestChan <- sampleFilterInfo
+	sampleRetrievalRequest := SampleRetrievalRequest{DataSourceId: dataSourceId, From: from, To: to, ResponseChan: responseChan}
+	r.sampleRequestChan <- sampleRetrievalRequest
+	return <-responseChan
+}
+
+func (r *PersistentDataStoreReporter) GetLatestSamples(dataSourceId string, num int) []*Sample {
+	responseChan := make(chan []*Sample)
+	sampleRetrievalRequest := QuantitativeSampleRetrievalRequest{DataSourceId: dataSourceId, Quantity: num, ResponseChan: responseChan}
+	r.quantitativeSampleRequestChan <- sampleRetrievalRequest
 	return <-responseChan
 }
 
@@ -1472,6 +1498,12 @@ type SampleRetrievalRequest struct {
 	DataSourceId string
 	From         time.Time
 	To           time.Time
+	ResponseChan chan []*Sample
+}
+
+type QuantitativeSampleRetrievalRequest struct {
+	DataSourceId string
+	Quantity     int
 	ResponseChan chan []*Sample
 }
 
