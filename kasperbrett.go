@@ -335,12 +335,17 @@ type RestApi interface {
 /* ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** */
 
 type DataSourceDto struct {
+	// Id is only set for the corresponding GET requests
+	Id       string `json:"id"`
 	Type     string `json:"type" binding:"Required"`
 	Name     string `json:"name" binding:"Required"`
 	Interval int64  `json:"interval"`
 	Timeout  int64  `json:"timeout"`
 	// TypeSettings are variable depending on the data source
 	TypeSettings map[string]string `json:"typeSettings"`
+	// Labels and Series are only set if query param `include-data` is set to 1 (GET /datasources)
+	Labels []int64  `json:"labels"` // int64 because it represents the number of milliseconds since Unix Epoch
+	Series []string `json:"series"` // string because Kasperbrett considers sample values as strings
 }
 
 type DataSourceResponse struct {
@@ -467,6 +472,8 @@ func NewKasperbrettRestApi(bindAddr string, socketIOPath string, socketIOApi Soc
 				return
 			}
 
+			includeData := ctx.Query("include-data")
+
 			var dataSourceDto DataSourceDto
 			var urlScraperDs *UrlScraper
 			dataSourceList := []DataSourceDto{}
@@ -476,6 +483,7 @@ func NewKasperbrettRestApi(bindAddr string, socketIOPath string, socketIOApi Soc
 
 				dataSourceDto = DataSourceDto{
 					Type:     DsUrlScraper,
+					Id:       dataSource.Id(),
 					Name:     dataSource.Name(),
 					Interval: dataSource.Interval().Nanoseconds() / 1000000,
 					Timeout:  dataSource.Timeout().Nanoseconds() / 1000000,
@@ -485,6 +493,24 @@ func NewKasperbrettRestApi(bindAddr string, socketIOPath string, socketIOApi Soc
 						"transformationScript": urlScraperDs.transformationScript,
 					},
 				}
+
+				if includeData == "1" {
+					samples, err := dataStore.GetLatestSamples(dataSource.Id(), 10)
+					if err != nil {
+						ctx.JSON(500, &ErrorResponse{Error: err.Error()})
+						return
+					}
+
+					labels := []int64{}
+					series := []string{}
+					for _, sample := range samples {
+						labels = append(labels, sample.Timestamp.UnixNano()/1000000)
+						series = append(series, sample.Value)
+					}
+					dataSourceDto.Labels = labels
+					dataSourceDto.Series = series
+				}
+
 				dataSourceList = append(dataSourceList, dataSourceDto)
 			}
 
@@ -652,6 +678,7 @@ type DataStore interface {
 	GetDataSources() ([]DataSource, error)
 	PersistSamples(samples []*Sample) error
 	GetSamples(dataSourceId string, from time.Time, to time.Time) ([]*Sample, error)
+	GetLatestSamples(dataSourceId string, num int) ([]*Sample, error)
 }
 
 /* ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** */
@@ -728,7 +755,6 @@ func (ds *BoltDataStore) GetDataSources() ([]DataSource, error) {
 			if err != nil {
 				fmt.Printf("[BoltDataStore.GetDataSources()] Couldn't read data source %s due to: %s\n", dataSourceId, err.Error())
 			} else {
-				fmt.Printf(" [BoltDataStore.GetDataSources()] dataSourceId -> %s, name ->%s\n", dataSourceId, dataSource.Name())
 				dataSources = append(dataSources, dataSource)
 			}
 
@@ -789,6 +815,48 @@ func (ds *BoltDataStore) GetSamples(dataSourceId string, from time.Time, to time
 			} else {
 				samples = append(samples, sample)
 			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	} else {
+		return samples, nil
+	}
+}
+
+func (ds *BoltDataStore) GetLatestSamples(dataSourceId string, num int) ([]*Sample, error) {
+	samples := []*Sample{}
+
+	err := ds.db.View(func(tx *bolt.Tx) error {
+		c := tx.Bucket([]byte(BoltSamplesBucket)).Cursor()
+		dataSourceIdBytes := []byte(dataSourceId)
+
+		var err error
+		var sample *Sample
+		for k, sampleBytes := c.Last(); k != nil && len(samples) < num; k, sampleBytes = c.Prev() {
+			if bytes.HasPrefix(k, dataSourceIdBytes) {
+				sample = new(Sample)
+				err = sample.GobDecode(sampleBytes)
+				if err != nil {
+					fmt.Printf("[BoltDataStore.GetLatestSamples()] Couldn't read sample %s due to: %s\n", k, err.Error())
+				} else {
+					samples = append(samples, sample)
+				}
+			}
+		}
+
+		// reverse order
+		samplesCount := len(samples)
+		if samplesCount > 0 {
+			ascOrderSamples := make([]*Sample, len(samples))
+			for i := samplesCount - 1; i >= 0; i-- {
+				ascOrderSamples[samplesCount-(i+1)] = samples[i]
+			}
+
+			samples = ascOrderSamples
 		}
 
 		return nil
