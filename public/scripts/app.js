@@ -1,14 +1,14 @@
 (function(angular) {
     'use strict';
 
-    var module = angular.module('kasperbrettApp', ['angular-chartist']);
+    var module = angular.module('kasperbrettApp', ['angular-chartist', 'ui.bootstrap']);
 
-    module.controller('MainCtrl', function($scope, $interval, $http) {
+    module.controller('MainCtrl', function($scope, $interval, $http, $modal) {
 
         this.dataSources = [];
 
         // TODO: extract data access to a service
-        $http.get('/api/datasources?include-data=1').then(function(res) {
+        $http.get('/api/datasources?include-latest-samples=1').then(function(res) {
             res.data.forEach(function(dataSource) {
                 var labels = [];
                 dataSource.labels.forEach(function(timestampMillis) {
@@ -44,6 +44,17 @@
 
             return returnVal;
         }
+
+        this.openAddDataSourceModal = function() {
+            var modalInstance = $modal.open({
+              templateUrl: 'templates/modals/addDataSourceModal.html',
+              controller: 'AddDataSourceModalCtrl'
+            });
+
+            modalInstance.result.then(function (dataSource) {
+                this.dataSources.push(dataSource);
+            }.bind(this));
+        }.bind(this);
 
 
             this.events = {

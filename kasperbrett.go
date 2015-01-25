@@ -350,6 +350,12 @@ type DataSourceDto struct {
 
 type DataSourceResponse struct {
 	DataSourceId string `json:"dataSourceId"`
+	Timestamp    int64  `json:"timestamp"`
+	Value        string `json:"value"`
+}
+
+type DataSourceTestResponse struct {
+	Value string `json:"value"`
 }
 
 type ErrorResponse struct {
@@ -411,6 +417,12 @@ func NewKasperbrettRestApi(bindAddr string, socketIOPath string, socketIOApi Soc
 				return
 			}
 
+			retrievalTestOnly := ctx.Query("test-only")
+			if retrievalTestOnly == "1" {
+				ctx.JSON(200, &DataSourceTestResponse{Value: sample.Value})
+				return
+			}
+
 			// persist data source
 			err = dataStore.PersistDataSource(urlScraperDs)
 			if err != nil {
@@ -423,7 +435,7 @@ func NewKasperbrettRestApi(bindAddr string, socketIOPath string, socketIOApi Soc
 				RetrieveAndDistribute(urlScraperDs, reportingEngine, time.Duration(ds.Timeout)*time.Millisecond)
 			})
 
-			ctx.JSON(200, &DataSourceResponse{DataSourceId: urlScraperDs.Id()})
+			ctx.JSON(200, &DataSourceResponse{DataSourceId: urlScraperDs.Id(), Timestamp: sample.Timestamp.UnixNano() / 1000000, Value: sample.Value})
 		})
 
 		m.Get("/datasources/:dataSourceId/samples/:timeframe", func(ctx *macaron.Context) string {

@@ -1,5 +1,5 @@
 <!doctype html>
-<html class="no-js" lang="en">
+<html class="no-js" lang="en" ng-app="kasperbrettApp">
 
 <head>
     <meta charset="utf-8">
@@ -15,12 +15,12 @@
     <link rel="stylesheet" href="styles/app.css">
 </head>
 
-<body ng-app="kasperbrettApp">
+<body ng-controller="MainCtrl as chartist">
   <!-- Pushy Menu -->
   <nav class="pushy pushy-left">
     <ul>
-      <li><a href="#">Add Data Source</a></li>
-      <li><a href="#">Do Whatever</a></li>
+      <li><a ng-click="chartist.openAddDataSourceModal()">Add Data Source</a></li>
+      <li><a href="">Do Whatever</a></li>
     </ul>
   </nav>
 
@@ -28,7 +28,7 @@
   <div class="site-overlay"></div>
 
 
-    <section id="container" class="container-fluid" ng-controller="MainCtrl as chartist">
+    <section id="container" class="container-fluid">
         <div class="menu-btn">&#9776; Menu</div>
         <div class="row">
 
@@ -93,12 +93,15 @@
     </section>
 
     <script type="text/javascript" src="bower_components/jquery/dist/jquery.min.js"></script>
-    <script type="text/javascript" src="bower_components/angular/angular.min.js"></script>
+    <script type="text/javascript" src="bower_components/angular/angular.js"></script>
     <script type="text/javascript" src="bower_components/chartist/dist/chartist.min.js"></script>
     <script type="text/javascript" src="bower_components/pushy/js/pushy.min.js"></script>
     <script type="text/javascript" src="bower_components/angular-chartist.js/dist/angular-chartist.min.js"></script>
+    <script type="text/javascript" src="bower_components/angular-bootstrap/ui-bootstrap.min.js"></script>
+    <script type="text/javascript" src="bower_components/angular-bootstrap/ui-bootstrap-tpls.min.js"></script>
 
     <script type="text/javascript" src="scripts/app.js"></script>
+    <script type="text/javascript" src="scripts/controllers/AddDataSourceModalCtrl.js"></script>
 </body>
 
 </html>
