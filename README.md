@@ -1,6 +1,10 @@
 # Kasperbrett
 A dead simple dashboard app created in the course of the [Gopher Gala](http://gophergala.com/).
 
+## Demo
+
+A demo can be found [here](http://mycloset.dlinkddns.com:8080/).
+
 ## Features
 
 * Persistent storage of all time series data
