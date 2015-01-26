@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -55,7 +56,7 @@ func main() {
 		fmt.Println("Error while processing config file:", err)
 		os.Exit(2)
 	}
-	fmt.Println("config ->", config.GetDataFilePath(), config.GetDataFlushInterval())
+	fmt.Println("config ->", config.GetPort(), config.GetDataFilePath(), config.GetDataFlushInterval())
 
 	// orchestration
 	kasperbrett, err := NewKasperbrett(config).Prepare()
@@ -85,13 +86,19 @@ func main() {
 /* ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** ***** */
 
 type Config interface {
+	GetPort() int
 	GetDataFilePath() string
 	GetDataFlushInterval() int
 }
 
 type KasperbrettConfig struct {
+	Port              int
 	DataFilePath      string
 	DataFlushInterval int
+}
+
+func (c *KasperbrettConfig) GetPort() int {
+	return c.Port
 }
 
 func (c *KasperbrettConfig) GetDataFilePath() string {
@@ -275,7 +282,9 @@ func (kb *Kasperbrett) Prepare() (*Kasperbrett, error) {
 	})
 	*/
 
-	kb.restApi = NewKasperbrettRestApi(":8080", "/realtime/", kb.socketIOApi, boltDataStore, persistentDataStoreReporter, kb.scheduler)
+	portString := ":" + strconv.Itoa(kb.config.GetPort())
+
+	kb.restApi = NewKasperbrettRestApi(portString, "/realtime/", kb.socketIOApi, boltDataStore, persistentDataStoreReporter, kb.scheduler)
 	bindErrChan := kb.restApi.ListenAndServe()
 	bindErr := <-bindErrChan
 	if bindErr != nil {
@@ -388,8 +397,8 @@ func NewKasperbrettRestApi(bindAddr string, socketIOPath string, socketIOApi Soc
 				ctx.JSON(400, &ErrorResponse{Error: "Please provide a valid CSS path."})
 				return
 			}
-			if ds.Interval < 10000 {
-				ctx.JSON(400, &ErrorResponse{Error: "Please provide a bigger interval (>= 10000) to prevent abuse."})
+			if ds.Interval < 30000 {
+				ctx.JSON(400, &ErrorResponse{Error: "Please provide a bigger interval (>= 30000) to prevent abuse."})
 				return
 			}
 
