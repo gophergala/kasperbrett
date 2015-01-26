@@ -24,14 +24,14 @@
       <li><a href="">Do Whatever</a></li>
     </ul>
     -->
-    <a ng-click="chartist.openAddDataSourceModal()">Add Data Source</a>
+    <a href="" ng-click="chartist.openAddDataSourceModal()">Add Data Source</a>
   </nav>
 
   <!-- Pushy Site Overlay -->
   <div class="site-overlay"></div>
 
 
-    <section id="container" class="container-fluid">
+    <section id="container" class="container-fluid" ng-cloak>
         <div class="menu-btn">&#9776; Menu</div>
         <div class="row">
 
@@ -43,6 +43,17 @@
                     <div class="panel-body">
                         <chartist class="ct-chart ct-golden-section" chartist-data="dataSource.chartData" chartist-chart-type="Line"></chartist>
                     </div>
+                </div>
+            </div>
+
+            <div ng-show="chartist.dataSources.length == 0" class="col-md-12">
+                <div class="jumbotron text-center">
+                    <h1>Kasperbrett</h1>
+                    <p>
+                        A dead simple dashboard app created in the course of the <a href="http://gophergala.com/" target="_blank">Gopher Gala</a>.<br>
+                        <span class="text-muted">Kasperbrett currently only supports one data source: An URL Scraper. Due to the pluggable data source architecture it is very easy to implement additional data sources, e.g. accessing an OAuth secured REST API, following a user's interaction route, etc.</span>
+                    </p>
+                    <p><a class="btn btn-primary btn-lg" ng-click="chartist.openAddDataSourceModal()">Add Data Source</a></p>
                 </div>
             </div>
 

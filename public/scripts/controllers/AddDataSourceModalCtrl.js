@@ -5,6 +5,19 @@ angular.module('kasperbrettApp').controller('AddDataSourceModalCtrl', function($
 
   	$scope.selectedDataSourceType = $scope.dataSourceTypes[0];
 
+  	$scope.preset = function(str) {
+  		$scope.dataSource = {
+  			name: '#Search Results on Stack Overflow for "' + str + '"',
+  			interval: 30000,
+  			timeout: 5000,
+  			typeSettings: {
+  				url: 'http://stackoverflow.com/search?q=' + str,
+  				cssPath: '#mainbar > div.subheader.results-header > h2',
+  				transformationScript: 'value.replace(/\\D/g, \'\')'
+  			}
+  		};
+  	};
+
   	$scope.ok = function(dataSource) {
   		dataSource.type = 'DsUrlScraper';
   		dataSource.interval = parseInt(dataSource.interval);

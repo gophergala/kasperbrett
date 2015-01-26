@@ -3,10 +3,17 @@
 </div>
 <div class="modal-body">
     <form name="dataSourceForm" novalidate>
+    	<legend>Presets</legend>
+    	<div class="form-group">
+    		<button class="btn btn-primary" style="width: 100%; margin-bottom: 5px" ng-click="preset('golang')">#Search Results on Stack Overflow for &quot;golang&quot;</button>
+    		<button class="btn btn-primary" style="width: 100%; margin-bottom: 5px" ng-click="preset('nodejs')">#Search Results on Stack Overflow for &quot;nodejs&quot;</button>
+    		<button class="btn btn-primary" style="width: 100%" ng-click="preset('gopher')">#Search Results on Stack Overflow for &quot;gopher&quot;</button>
+    	</div>
+
     	<legend>Basic Settings</legend>
         <div class="form-group has-feedback" ng-class="{'has-error': dataSourceForm.name.$invalid}">
             <label>Name</label>
-            <input type="text" class="form-control" placeholder="e.g. #Stack Overflow Search Results for &quot;golang&quot;"
+            <input type="text" class="form-control" placeholder="e.g. #Search Results on Stack Overflow for &quot;golang&quot;"
             	   name="name" ng-model="dataSource.name" required>
             <span class="glyphicon glyphicon-remove form-control-feedback" ng-show="dataSourceForm.name.$invalid"></span>
         </div>
